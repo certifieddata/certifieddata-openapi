@@ -1,0 +1,426 @@
+openapi: 3.1.0
+info:
+  title: CertifiedData API
+  version: 1.0.0
+  summary: Public API for the CertifiedData certificate authority for AI artifacts.
+  description: |
+    CertifiedData issues Ed25519-signed certificates for synthetic datasets, AI decision
+    records, and agent-commerce receipts. This specification covers the stable public
+    surface used by all three pillars plus the shared verification infrastructure.
+
+    All signatures are Ed25519 over RFC 8785 JCS-canonicalized payloads. Public keys are
+    published at `/.well-known/signing-keys.json` and are shared across all three pillars.
+  license:
+    name: MIT
+    url: https://opensource.org/license/mit/
+  contact:
+    name: CertifiedData
+    url: https://certifieddata.io
+servers:
+  - url: https://certifieddata.io
+    description: Production
+security:
+  - bearerAuth: []
+  - {}   # many public endpoints do not require auth
+tags:
+  - name: Verification
+    description: Public verification of certificates and signed records.
+  - name: Decision Ledger
+    description: Sign and query AI decision records.
+  - name: Agent Commerce
+    description: Sandbox transaction flows and signed receipts.
+  - name: Dataset Generation
+    description: Template-based generation and manifest-based certification.
+  - name: Registry
+    description: Public artifact registry lookups.
+paths:
+  /.well-known/signing-keys.json:
+    get:
+      tags: [Verification]
+      summary: Public signing key registry
+      description: Ed25519 public keys used to sign certificates, decisions, and receipts. Shared across all three pillars.
+      security: []
+      responses:
+        "200":
+          description: Signing key registry.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SigningKeyRegistry" }
+
+  /api/verify/{certificateId}:
+    get:
+      tags: [Verification]
+      summary: Verify a certificate by ID
+      security: []
+      parameters:
+        - name: certificateId
+          in: path
+          required: true
+          schema: { type: string, maxLength: 120 }
+      responses:
+        "200":
+          description: Verification result.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VerificationResult" }
+        "404": { description: Certificate not found }
+
+  /api/decision-log/demo:
+    post:
+      tags: [Decision Ledger]
+      summary: Sign a demo decision record (no auth)
+      description: |
+        Public endpoint that signs a sample decision record and returns the full signed artifact.
+        Rate limit: 30 requests per minute per IP. Records are not persisted.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DecisionDemoRequest" }
+      responses:
+        "200":
+          description: Signed decision record.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SignedDecisionRecord" }
+        "429": { description: Rate limit exceeded }
+
+  /v1/decisions:
+    post:
+      tags: [Decision Ledger]
+      summary: Sign and persist a decision record
+      description: |
+        Authenticated endpoint. Free plan allows 1,000 decisions per month. Higher plans lift the monthly cap.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DecisionRequest" }
+      responses:
+        "200":
+          description: Signed and persisted decision record.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SignedDecisionRecord" }
+        "401": { description: Missing or invalid API key }
+        "429": { description: Monthly cap reached }
+
+  /api/decision-log/latest:
+    get:
+      tags: [Decision Ledger]
+      summary: Most recent public decision record
+      security: []
+      responses:
+        "200":
+          description: Latest record.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SignedDecisionRecord" }
+
+  /api/synth/public/generate:
+    post:
+      tags: [Dataset Generation]
+      summary: Generate a certified synthetic dataset (no auth)
+      description: |
+        Public generation using one of the stock templates. Rate limit: 10 generations per 24h per IP,
+        up to 1,000 rows each. Response is a CSV body plus a certificate artifact in headers.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GenerateRequest" }
+      responses:
+        "200":
+          description: Generated dataset (CSV) + certificate metadata.
+          content:
+            text/csv:
+              schema: { type: string, format: binary }
+          headers:
+            X-CertifiedData-Certificate-Id:
+              schema: { type: string }
+            X-CertifiedData-Dataset-Hash:
+              schema: { type: string, pattern: "^sha256:[0-9a-f]{64}$" }
+        "429": { description: Rate limit exceeded }
+
+  /api/manifest/certify:
+    post:
+      tags: [Dataset Generation]
+      summary: Certify artifacts from a manifest (authenticated)
+      description: |
+        Structured batch certification — submit a manifest referencing one or more artifacts and
+        receive a signed certificate per artifact. See the manifest JSON Schema at
+        `https://certifieddata.io/schemas/manifest/v1.json`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Manifest" }
+      responses:
+        "200":
+          description: Certificate bundle — one entry per artifact.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CertificateBundle" }
+        "400": { description: Manifest validation failed }
+        "401": { description: Missing or invalid API key }
+
+  /api/sandbox/ephemeral-key:
+    post:
+      tags: [Agent Commerce]
+      summary: Issue an ephemeral sandbox API key (no auth)
+      description: |
+        Returns a short-lived API key scoped to the sandbox environment. 3 keys per IP per 24h, 24h TTL.
+      security: []
+      responses:
+        "200":
+          description: Ephemeral key.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EphemeralKey" }
+        "429": { description: Key quota exceeded }
+
+  /api/sandbox/transactions:
+    post:
+      tags: [Agent Commerce]
+      summary: Run a sandbox transaction
+      description: Returns a signed receipt describing the policy decision and outcome.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SandboxTxRequest" }
+      responses:
+        "200":
+          description: Signed receipt.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SignedReceipt" }
+        "401": { description: Missing or invalid API key }
+
+  /api/registry/{artifactId}:
+    get:
+      tags: [Registry]
+      summary: Fetch an artifact registry record
+      security: []
+      parameters:
+        - name: artifactId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Registry record.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RegistryRecord" }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: API Key
+  schemas:
+    SigningKeyRegistry:
+      type: object
+      required: [active_keys]
+      properties:
+        active_keys:
+          type: array
+          items: { $ref: "#/components/schemas/PublicKeyEntry" }
+        retired_keys:
+          type: array
+          items: { $ref: "#/components/schemas/PublicKeyEntry" }
+    PublicKeyEntry:
+      type: object
+      required: [key_id, algorithm, public_key_pem]
+      properties:
+        key_id: { type: string }
+        algorithm: { type: string, enum: [Ed25519] }
+        public_key_pem: { type: string }
+        public_key_raw_b64url: { type: string, nullable: true }
+        products:
+          type: array
+          items: { type: string, enum: [certificates, decisions, datasets] }
+        created_at: { type: string, format: date-time, nullable: true }
+    VerificationResult:
+      type: object
+      required: [valid]
+      properties:
+        valid: { type: boolean }
+        key_id: { type: string }
+        reason: { type: string, nullable: true }
+        certificate: { type: object, additionalProperties: true, nullable: true }
+    DecisionDemoRequest:
+      type: object
+      required: [actor, decision]
+      properties:
+        actor:
+          type: object
+          required: [id]
+          properties:
+            id: { type: string }
+            type: { type: string }
+        decision:
+          type: object
+          required: [outcome]
+          additionalProperties: true
+          properties:
+            outcome: { type: string }
+            reason: { type: string }
+        explanation:
+          type: object
+          properties:
+            reasonCodes:
+              type: array
+              items: { type: string }
+            rationaleSummary: { type: string, nullable: true }
+        entity:
+          type: object
+          additionalProperties: true
+    DecisionRequest:
+      allOf:
+        - $ref: "#/components/schemas/DecisionDemoRequest"
+        - type: object
+          properties:
+            retention_days: { type: integer, minimum: 1, maximum: 3650 }
+            tags:
+              type: array
+              items: { type: string }
+    SignedDecisionRecord:
+      type: object
+      required: [record_hash, signature, signature_alg, key_id, canonical_payload]
+      properties:
+        decision_id: { type: string }
+        timestamp: { type: string, format: date-time }
+        record_hash: { type: string, pattern: "^[0-9a-f]{64}$" }
+        signature: { type: string, description: "Base64 Ed25519 signature" }
+        signature_alg: { type: string, enum: [Ed25519] }
+        key_id: { type: string }
+        canonical_payload: { type: string, description: "RFC 8785 JCS-canonicalized JSON payload" }
+        public_key_url: { type: string, format: uri }
+        verify_hint: { type: string }
+        demo: { type: boolean }
+    GenerateRequest:
+      type: object
+      required: [template_id, rows]
+      properties:
+        template_id: { type: string, example: fraud-detection }
+        rows: { type: integer, minimum: 100, maximum: 1000 }
+    Manifest:
+      type: object
+      required: [manifest_version, issued_at, artifacts]
+      properties:
+        manifest_version: { type: string, enum: ["1.0"] }
+        issued_at: { type: string, format: date-time }
+        issuer:
+          type: object
+          properties:
+            name: { type: string }
+            contact: { type: string }
+            environment: { type: string, enum: [prod, staging, dev, ci] }
+        correlation_id: { type: string }
+        artifacts:
+          type: array
+          minItems: 1
+          items: { $ref: "#/components/schemas/ManifestArtifact" }
+    ManifestArtifact:
+      type: object
+      required: [artifact_type, content_hash]
+      properties:
+        artifact_type: { type: string, enum: [dataset, output, published-page, bundle, model, custom] }
+        name: { type: string }
+        content_hash: { type: string, pattern: "^sha256:[0-9a-f]{64}$" }
+        content_size_bytes: { type: integer, minimum: 0 }
+        source_references:
+          type: array
+          items:
+            type: object
+            required: [kind, id]
+            properties:
+              kind: { type: string, enum: [model, prompt, dataset, document, retrieval_source, pipeline, other] }
+              id: { type: string }
+              version: { type: string }
+              note: { type: string }
+        generation_metadata: { type: object, additionalProperties: true }
+        lineage:
+          type: object
+          properties:
+            parent_certificates: { type: array, items: { type: string } }
+            upstream_artifacts: { type: array, items: { type: string, pattern: "^sha256:[0-9a-f]{64}$" } }
+        policy_context:
+          type: object
+          properties:
+            policy_id: { type: string }
+            approval_reference: { type: string }
+        issuance_notes: { type: string }
+    CertificateBundle:
+      type: object
+      required: [ok, certificates]
+      properties:
+        ok: { type: boolean }
+        correlation_id: { type: string }
+        certificates:
+          type: array
+          items:
+            type: object
+            required: [certification_id, dataset_hash, signature, signature_alg, key_id]
+            properties:
+              certification_id: { type: string }
+              artifact_name: { type: string, nullable: true }
+              dataset_hash: { type: string, pattern: "^sha256:[0-9a-f]{64}$" }
+              algorithm_spec: { type: object, additionalProperties: true }
+              signature: { type: string }
+              signature_alg: { type: string, enum: [Ed25519] }
+              key_id: { type: string }
+              verify_url: { type: string, format: uri }
+    EphemeralKey:
+      type: object
+      required: [api_key, expires_at]
+      properties:
+        api_key: { type: string }
+        expires_at: { type: string, format: date-time }
+        quota_remaining_today: { type: integer }
+    SandboxTxRequest:
+      type: object
+      required: [actor, intent]
+      properties:
+        actor:
+          type: object
+          required: [id]
+          properties:
+            id: { type: string }
+            type: { type: string }
+        intent:
+          type: object
+          required: [action]
+          additionalProperties: true
+          properties:
+            action: { type: string, example: purchase_dataset }
+            amount_usd: { type: number }
+            target: { type: string }
+        policy_id: { type: string }
+    SignedReceipt:
+      type: object
+      required: [receipt_id, content_hash, signature, signature_alg, key_id, canonical_payload]
+      properties:
+        receipt_id: { type: string }
+        content_hash: { type: string, pattern: "^[0-9a-f]{64}$" }
+        signature: { type: string }
+        signature_alg: { type: string, enum: [Ed25519] }
+        key_id: { type: string }
+        canonical_payload: { type: string }
+        policy_outcome: { type: string, enum: [allow, deny, review] }
+        verify_url: { type: string, format: uri }
+    RegistryRecord:
+      type: object
+      required: [artifact_id, artifact_type, content_hash, certification_id]
+      properties:
+        artifact_id: { type: string }
+        artifact_type: { type: string }
+        content_hash: { type: string, pattern: "^sha256:[0-9a-f]{64}$" }
+        certification_id: { type: string }
+        certified_at: { type: string, format: date-time }
+        verify_url: { type: string, format: uri }

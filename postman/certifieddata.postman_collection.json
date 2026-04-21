@@ -1,0 +1,145 @@
+{
+  "info": {
+    "_postman_id": "certifieddata-v1",
+    "name": "CertifiedData API",
+    "description": "Public endpoints for the CertifiedData certificate authority for AI artifacts. Covers verification, decision ledger, agent commerce, dataset generation, and manifest-based certification. See https://github.com/certifieddata/certifieddata-openapi for the full spec.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "https://certifieddata.io" },
+    { "key": "api_key", "value": "" }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{api_key}}", "type": "string" }]
+  },
+  "item": [
+    {
+      "name": "Verification",
+      "item": [
+        {
+          "name": "Public signing keys",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/.well-known/signing-keys.json",
+            "auth": { "type": "noauth" }
+          }
+        },
+        {
+          "name": "Verify certificate by ID",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/verify/:certificateId",
+            "auth": { "type": "noauth" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Decision Ledger",
+      "item": [
+        {
+          "name": "Sign demo decision (no auth)",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/decision-log/demo",
+            "auth": { "type": "noauth" },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"actor\": { \"id\": \"loan-origination-model-v3\", \"type\": \"ai_model\" },\n  \"decision\": { \"outcome\": \"approved\", \"reason\": \"Credit threshold passed\" },\n  \"explanation\": { \"reasonCodes\": [\"CREDIT_SCORE_OK\"], \"rationaleSummary\": \"Score 742, DTI 28%.\" }\n}"
+            }
+          }
+        },
+        {
+          "name": "Latest public decision",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/decision-log/latest",
+            "auth": { "type": "noauth" }
+          }
+        },
+        {
+          "name": "Sign + persist decision",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/v1/decisions",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"actor\": { \"id\": \"loan-origination-model-v3\", \"type\": \"ai_model\" },\n  \"decision\": { \"outcome\": \"approved\" },\n  \"explanation\": { \"reasonCodes\": [\"CREDIT_SCORE_OK\"] },\n  \"retention_days\": 365\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Agent Commerce",
+      "item": [
+        {
+          "name": "Issue ephemeral sandbox key (no auth)",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/sandbox/ephemeral-key",
+            "auth": { "type": "noauth" }
+          }
+        },
+        {
+          "name": "Run sandbox transaction",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/sandbox/transactions",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"actor\": { \"id\": \"ops-agent\", \"type\": \"autonomous_agent\" },\n  \"intent\": { \"action\": \"purchase_dataset\", \"target\": \"certifieddata://datasets/fraud-v7\", \"amount_usd\": 12.0 }\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Dataset Generation",
+      "item": [
+        {
+          "name": "Generate (public, no auth)",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/synth/public/generate",
+            "auth": { "type": "noauth" },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{ \"template_id\": \"fraud-detection\", \"rows\": 1000 }"
+            }
+          }
+        },
+        {
+          "name": "Certify from manifest",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/manifest/certify",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"manifest_version\": \"1.0\",\n  \"issued_at\": \"2026-04-21T14:32:10Z\",\n  \"artifacts\": [\n    {\n      \"artifact_type\": \"dataset\",\n      \"content_hash\": \"sha256:1c4f6d7e8b3a0d91f6a7b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f607\"\n    }\n  ]\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Registry",
+      "item": [
+        {
+          "name": "Fetch registry record",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/registry/:artifactId",
+            "auth": { "type": "noauth" }
+          }
+        }
+      ]
+    }
+  ]
+}
